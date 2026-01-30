@@ -2,8 +2,8 @@
 Trigger detection module.
 
 Two-tier detection system:
-1. Lemmas (pymorphy3) - primary detection layer
-2. Regex patterns - secondary detection layer for variants/evasion
+1. Lemma-based detection (pymorphy3) - primary layer
+2. Regex pattern detection - secondary layer for variants/evasion
 
 Returns detailed match information for transparency.
 """
@@ -21,15 +21,9 @@ from bot.config import (
     generate_regex_variants_for_word,
 )
 
-# Initialize morphological analyzer
 morph = pymorphy3.MorphAnalyzer()
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# PERFORMANCE OPTIMIZATION: Pattern Compilation Cache
-# ═══════════════════════════════════════════════════════════════════════════════
-# Compiled regex patterns are cached to avoid regeneration on every message
-# This provides ~2-3ms speedup per message for large trigger sets
-
+# Performance optimization: compiled regex patterns cached to avoid recompilation
 _compiled_patterns_cache: dict[str, Optional[re.Pattern]] = {}
 
 
@@ -62,16 +56,16 @@ class MatchDetail:
         }
     
     def format_human(self) -> str:
-        """Форматирует для отображения пользователю."""
+        """Format match for display to user."""
         if self.match_type == MatchType.LEMMA:
-            return f'«{self.matched_fragment}» (лемма: {self.lemma})'
+            return f'«{self.matched_fragment}» (lemma: {self.lemma})'
         else:
-            return f'«{self.matched_fragment}» (правило: {self.rule_name})'
+            return f'«{self.matched_fragment}» (rule: {self.rule_name})'
 
 
 @dataclass
 class DetectionResult:
-    """Результат детекции."""
+    """Detection result with match details."""
     triggered: bool
     matches: list[MatchDetail]
     excluded: bool = False
@@ -87,27 +81,23 @@ class DetectionResult:
     
     @property
     def first_match(self) -> Optional[MatchDetail]:
-        """Первое совпадение (главный триггер)."""
+        """First match (primary trigger)."""
         return self.matches[0] if self.matches else None
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# НОРМАЛИЗАЦИЯ И ТОКЕНИЗАЦИЯ
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# Regex для токенизации: слова на кириллице и латинице
+# Tokenization regex: Cyrillic and Latin words
 TOKEN_PATTERN = re.compile(r'[а-яёa-z]+', re.IGNORECASE)
 
 
 def normalize_text(text: str) -> str:
-    """Нормализует текст: lower, удаление лишних пробелов."""
+    """Normalize text: lowercase and trim whitespace."""
     return text.lower().strip()
 
 
 def tokenize(text: str) -> list[tuple[str, int, int]]:
     """
-    Разбивает текст на токены.
-    Возвращает список (токен, start, end).
+    Split text into tokens.
+    Returns list of (token, start_pos, end_pos).
     """
     tokens = []
     for match in TOKEN_PATTERN.finditer(text.lower()):
@@ -116,7 +106,7 @@ def tokenize(text: str) -> list[tuple[str, int, int]]:
 
 
 def get_lemma(word: str) -> str:
-    """Получает лемму слова через pymorphy3."""
+    """Get word lemma using pymorphy3 morphological analyzer."""
     try:
         parsed = morph.parse(word)
         if parsed:
@@ -126,14 +116,10 @@ def get_lemma(word: str) -> str:
     return word
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# ПРОВЕРКА ИСКЛЮЧЕНИЙ
-# ═══════════════════════════════════════════════════════════════════════════════
-
 def check_exclusions(text: str) -> tuple[bool, Optional[str]]:
     """
-    Проверяет, попадает ли текст под исключения.
-    Возвращает (excluded, reason).
+    Check if text matches exclusion patterns (quotes, URLs, commands).
+    Returns (is_excluded, reason).
     """
     normalized = normalize_text(text)
     
@@ -147,14 +133,10 @@ def check_exclusions(text: str) -> tuple[bool, Optional[str]]:
     return False, None
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# ДЕТЕКЦИЯ ПО ЛЕММАМ
-# ═══════════════════════════════════════════════════════════════════════════════
-
 def detect_by_lemmas(text: str, trigger_lemmas: set[str]) -> list[MatchDetail]:
     """
-    Детекция по леммам.
-    Возвращает список совпадений.
+    Lemma-based detection (primary layer).
+    Returns list of matches.
     """
     matches = []
     tokens = tokenize(text)
@@ -174,11 +156,6 @@ def detect_by_lemmas(text: str, trigger_lemmas: set[str]) -> list[MatchDetail]:
             ))
     
     return matches
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# REGEX DETECTION
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def get_compiled_pattern(rule_name: str) -> Optional[re.Pattern]:
     """
@@ -226,7 +203,7 @@ def clear_pattern_cache():
 
 def detect_by_regex(text: str, enabled_rules: dict[str, bool]) -> list[MatchDetail]:
     """
-    Detection by regex patterns from database.
+    Regex-based detection (secondary layer).
     Returns list of matches.
     
     Args:
@@ -236,12 +213,10 @@ def detect_by_regex(text: str, enabled_rules: dict[str, bool]) -> list[MatchDeta
     matches = []
     normalized = normalize_text(text)
     
-    # For each enabled rule in database, get compiled pattern and check
     for rule_name, is_enabled in enabled_rules.items():
         if not is_enabled:
             continue
         
-        # Get compiled pattern from cache (or compile if first time)
         pattern = get_compiled_pattern(rule_name)
         
         if pattern:
@@ -257,33 +232,29 @@ def detect_by_regex(text: str, enabled_rules: dict[str, bool]) -> list[MatchDeta
                         position_end=match.end(),
                     ))
             except Exception:
-                pass  # Skip patterns that cause runtime errors
+                pass
     
     return matches
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# MAIN DETECTION FUNCTION
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def detect_triggers(text: str, trigger_lemmas: set[str], regex_rules_enabled: dict[str, bool]) -> DetectionResult:
     """
     Main trigger detection function.
     
-    1. Checks exclusions
-    2. Searches by lemmas (primary layer)
-    3. Searches by regex (secondary layer)
-    4. Returns detailed result
+    Process:
+    1. Check exclusions (quotes, URLs, commands)
+    2. Lemma-based detection (primary layer)
+    3. Regex-based detection (secondary layer)
+    4. Return detailed result
     
     Args:
-        text: текст для проверки
-        trigger_lemmas: набор лемм для детекции
-        regex_rules_enabled: словарь {rule_name: enabled} для regex-правил
+        text: Text to check
+        trigger_lemmas: Set of lemmas for detection
+        regex_rules_enabled: Dict {rule_name: enabled} for regex rules
     """
     if not text or not text.strip():
         return DetectionResult(triggered=False, matches=[])
     
-    # Проверка исключений
     excluded, exclusion_reason = check_exclusions(text)
     if excluded:
         return DetectionResult(
@@ -295,20 +266,20 @@ def detect_triggers(text: str, trigger_lemmas: set[str], regex_rules_enabled: di
     
     all_matches = []
     
-    # Слой 1: леммы
+    # Layer 1: lemma detection
     lemma_matches = detect_by_lemmas(text, trigger_lemmas)
     all_matches.extend(lemma_matches)
     
-    # Слой 2: regex (только если нет совпадений по леммам, или для полноты)
+    # Layer 2: regex detection
     regex_matches = detect_by_regex(text, regex_rules_enabled)
     
-    # Убираем дубликаты (если regex нашёл то же, что и лемма)
+    # Remove duplicates (if regex found same position as lemma)
     existing_positions = {(m.position_start, m.position_end) for m in all_matches}
     for rm in regex_matches:
         if (rm.position_start, rm.position_end) not in existing_positions:
             all_matches.append(rm)
     
-    # Сортируем по позиции
+    # Sort by position
     all_matches.sort(key=lambda m: m.position_start)
     
     return DetectionResult(
@@ -317,20 +288,16 @@ def detect_triggers(text: str, trigger_lemmas: set[str], regex_rules_enabled: di
     )
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# УТИЛИТЫ ДЛЯ ОТОБРАЖЕНИЯ
-# ═══════════════════════════════════════════════════════════════════════════════
-
 def format_match_for_message(match: MatchDetail) -> str:
-    """Форматирует совпадение для сообщения бота."""
+    """Format match detail for bot message display."""
     if match.match_type == MatchType.LEMMA:
-        return f'🔤 Слово: <b>{match.matched_fragment}</b> → лемма: <code>{match.lemma}</code>'
+        return f'<b>{match.matched_fragment}</b> → лемма <code>{match.lemma}</code>'
     else:
-        return f'📝 Паттерн: <b>{match.matched_fragment}</b> → правило: <code>{match.rule_name}</code>'
+        return f'<b>{match.matched_fragment}</b> → правило <code>{match.rule_name}</code>'
 
 
 def format_detection_result(result: DetectionResult) -> str:
-    """Форматирует полный результат детекции."""
+    """Format full detection result for display."""
     if not result.triggered:
         if result.excluded:
             return f"⚪ Исключение: {result.exclusion_reason}"

@@ -1,5 +1,5 @@
 """
-Точка входа для бота.
+Bot entry point.
 """
 
 import asyncio
@@ -15,46 +15,36 @@ from bot.config import BOT_TOKEN, DATABASE_PATH
 from bot.db import init_database
 from bot.handlers import commands, messages
 
-# Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-    ]
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
 
 
 async def main():
-    """Главная функция запуска бота."""
-    
-    # Проверка токена
+    """Main bot startup function."""
     if not BOT_TOKEN:
-        logger.error("BOT_TOKEN не установлен! Создайте .env файл с BOT_TOKEN=...")
+        logger.error("BOT_TOKEN not set! Create .env file with BOT_TOKEN=...")
         sys.exit(1)
     
-    # Создание директории для базы данных
     db_path = Path(DATABASE_PATH)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     
-    # Инициализация базы данных
-    logger.info("Инициализация базы данных...")
+    logger.info("Initializing database...")
     await init_database()
     
-    # Создание бота и диспетчера
     bot = Bot(
         token=BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
     dp = Dispatcher()
     
-    # Регистрация обработчиков
     dp.include_router(commands.router)
     dp.include_router(messages.router)
     
-    # Запуск
-    logger.info("Бот запускается...")
+    logger.info("Bot starting...")
     try:
         await dp.start_polling(bot)
     finally:

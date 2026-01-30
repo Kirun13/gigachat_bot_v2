@@ -1,6 +1,8 @@
 """
-Message handler: trigger detection and state updates.
-Processes all incoming messages (text, captions, media) for trigger words.
+Message handler for trigger detection.
+
+Processes all incoming messages (text, captions, media) for trigger words
+using the two-tier detection system (lemmas + regex patterns).
 """
 
 import logging
@@ -21,7 +23,7 @@ router = Router()
 
 
 def get_username(message: Message) -> str | None:
-    """Gets username or full name of user."""
+    """Extract username or full name from message."""
     user = message.from_user
     if not user:
         return None
@@ -35,54 +37,44 @@ def format_streak_broken_message(
     old_streak_seconds: int,
     result: DetectionResult,
 ) -> str:
-    """Formats streak broken notification message."""
+    """Format streak broken notification with trigger details."""
     duration_str = format_duration(old_streak_seconds)
     
     lines = [
         "🚨 <b>Стрик сломан!</b>",
         "",
-        f"👤 Кто: {username}",
+        f"👤 {username}",
         f"📊 Был стрик: <b>{duration_str}</b>",
         "",
-        "🔍 <b>Причина:</b>",
+        "🔍 <b>Сработало:</b>",
     ]
     
     for match in result.matches:
-        lines.append(f"  • {format_match_for_message(match)}")
+        lines.append(f"• {format_match_for_message(match)}")
     
-    lines.extend([
-        "",
-        "⏱ Счётчик начинается заново",
-    ])
-    
+    lines.extend(["", "⏱ Счётчик начинается заново"])
     return "\n".join(lines)
 
 
 @router.message(F.text & ~F.text.startswith('/'))
 async def handle_text_message(message: Message):
     """
-    Обработчик текстовых сообщений (не команд).
+    Handle text messages (excluding commands).
     
-    1. Проверяет текст на триггеры
-    2. Если триггер найден — сбрасывает стрик и уведомляет
-    3. Если нет — стрик продолжается (время идёт)
+    1. Check text for triggers
+    2. If triggered - reset streak and notify
+    3. If not - streak continues
     """
     chat_id = message.chat.id
     user_id = message.from_user.id if message.from_user else 0
     username = get_username(message)
     text = message.text or ""
     
-    # Убеждаемся, что стрик начат
     await start_streak_if_needed(chat_id)
-    
-    # Получаем триггеры для этого чата
     triggers = await get_chat_triggers(chat_id)
-    
-    # Детекция триггеров
     result = detect_triggers(text, triggers["lemmas"], triggers["regex_rules"])
     
     if result.triggered:
-        # Применяем событие TRIGGER
         event, new_state, old_streak_seconds = await apply_trigger_event(
             chat_id=chat_id,
             user_id=user_id,
@@ -91,15 +83,13 @@ async def handle_text_message(message: Message):
             match_details=result.to_dict(),
         )
         
-        # Отправляем уведомление
         response = format_streak_broken_message(
-            username=username or "Неизвестный",
+            username=username or "Unknown",
             old_streak_seconds=old_streak_seconds,
             result=result,
         )
         
         await message.reply(response)
-        
         logger.info(
             f"Trigger in chat {chat_id} by user {user_id}: "
             f"{result.first_match.format_human() if result.first_match else 'unknown'}"
@@ -108,18 +98,14 @@ async def handle_text_message(message: Message):
 
 @router.message(F.caption & ~F.caption.startswith('/'))
 async def handle_caption_message(message: Message):
-    """Processes media captions (non-commands) for triggers."""
+    """Process media captions (non-commands) for triggers."""
     chat_id = message.chat.id
     user_id = message.from_user.id if message.from_user else 0
     username = get_username(message)
     text = message.caption
     
-    # Убеждаемся, что стрик начат
     await start_streak_if_needed(chat_id)
-    
-    # Получаем триггеры для этого чата
     triggers = await get_chat_triggers(chat_id)
-    
     result = detect_triggers(text, triggers["lemmas"], triggers["regex_rules"])
     
     if result.triggered:
@@ -132,20 +118,19 @@ async def handle_caption_message(message: Message):
         )
         
         response = format_streak_broken_message(
-            username=username or "Неизвестный",
+            username=username or "Unknown",
             old_streak_seconds=old_streak_seconds,
             result=result,
         )
         
         await message.reply(response)
-    # If not triggered, still count the message by ensuring streak is active (already done above)
 
 
-@router.message(~F.text & ~F.caption)  # Only non-text, non-caption messages (stickers, GIFs, etc.)
+@router.message(~F.text & ~F.caption)
 async def handle_other_message(message: Message):
     """
-    Processes all other message types (stickers, GIFs, etc.).
-    Just ensures streak is running (time counts automatically).
+    Handle non-text messages (stickers, GIFs, etc.).
+    Ensures streak continues running.
     """
     chat_id = message.chat.id
     await start_streak_if_needed(chat_id)
