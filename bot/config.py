@@ -35,74 +35,165 @@ TRIGGER_LEMMAS: set[str] = {
 # REGEX PATTERN GENERATORS (for enhanced detection of trigger words)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# Transliteration map: Russian ↔ English phonetic equivalents
+# Used to detect words written in alternate scripts (e.g., "привет" as "privet")
+TRANSLIT_RU_TO_EN = {
+    'а': 'a',
+    'б': 'b',
+    'в': 'v',
+    'г': 'g',
+    'д': 'd',
+    'е': ['e', 'ye'],
+    'ё': ['yo', 'e'],
+    'ж': 'zh',
+    'з': 'z',
+    'и': 'i',
+    'й': ['y', 'i', 'j'],
+    'к': 'k',
+    'л': 'l',
+    'м': 'm',
+    'н': 'n',
+    'о': 'o',
+    'п': 'p',
+    'р': 'r',
+    'с': 's',
+    'т': 't',
+    'у': 'u',
+    'ф': 'f',
+    'х': ['kh', 'h'],
+    'ц': ['ts', 'c'],
+    'ч': 'ch',
+    'ш': 'sh',
+    'щ': ['shch', 'sch'],
+    'ъ': ['', "'"],
+    'ы': 'y',
+    'ь': ['', "'"],
+    'э': 'e',
+    'ю': ['yu', 'u'],
+    'я': ['ya', 'ia'],
+    # Kazakh-specific
+    'ә': 'a',
+    'ғ': 'g',
+    'қ': 'q',
+    'ң': 'ng',
+    'ө': 'o',
+    'ұ': 'u',
+    'ү': 'u',
+    'һ': 'h',
+    'і': 'i',
+}
+
+TRANSLIT_EN_TO_RU = {
+    'a': 'а',
+    'b': 'б',
+    'c': ['ц', 'к', 'с'],
+    'd': 'д',
+    'e': ['е', 'э'],
+    'f': 'ф',
+    'g': 'г',
+    'h': 'х',
+    'i': ['и', 'і'],
+    'j': 'й',
+    'k': 'к',
+    'l': 'л',
+    'm': 'м',
+    'n': 'н',
+    'o': 'о',
+    'p': 'п',
+    'q': 'к',
+    'r': 'р',
+    's': 'с',
+    't': 'т',
+    'u': 'у',
+    'v': 'в',
+    'w': 'в',
+    'x': 'кс',
+    'y': ['й', 'ы', 'и'],
+    'z': 'з',
+    # Multi-character transliterations
+    'zh': 'ж',
+    'kh': 'х',
+    'ts': 'ц',
+    'ch': 'ч',
+    'sh': 'ш',
+    'shch': 'щ',
+    'sch': 'щ',
+    'yu': 'ю',
+    'ya': 'я',
+    'yo': 'ё',
+    'ye': 'е',
+    'ia': 'я',
+}
+
 # Comprehensive lookalike character map for Russian, English, and Kazakh
 # Maps each character to a regex character class with visually similar alternatives
+# AND phonetically similar alternatives (for multi-modal detection)
 LOOKALIKE_MAP = {
-    # Latin/Cyrillic/Kazakh lookalikes with leet speak
+    # Latin/Cyrillic/Kazakh lookalikes with leet speak and phonetic mappings
     'a': '[aаӑӓӓӓ@4]',
     'b': '[bбвЬ6]',
     'c': '[cсϲⅽ]',
-    'd': '[dԁ]',
+    'd': '[dԁд]',
     'e': '[eеёӗӗ3€]',
-    'g': '[gԍ]',
+    'g': '[gԍг]',
     'h': '[hһҺ]',
-    'i': '[iіїӏ1!|]',
+    'i': '[iіїӏ1!|иі]',
     'j': '[jјј]',
     'k': '[kкқҚ]',
-    'l': '[lӏ1|]',
+    'l': '[lӏ1|л]',
     'm': '[mмӎ]',
     'n': '[nпҥҢ]',
     'o': '[oоөӨ0]',
     'p': '[pрр]',
     'q': '[qԛ]',
-    'r': '[rгr]',
-    's': '[sѕs5$]',
+    'r': '[rгrр]',
+    's': '[sѕs5$с]',
     't': '[tтҭ]',
-    'u': '[uүұӯ]',
-    'v': '[vѵν]',
+    'u': '[uүұӯу]',
+    'v': '[vѵνв]',
     'w': '[wԝ]',
     'x': '[xхҳ×]',
     'y': '[yуўӱ]',
-    'z': '[z3]',
-    # Cyrillic characters
+    'z': '[z3з]',
+    # Cyrillic characters (with phonetic Latin equivalents)
     'а': '[aаӑӓӓӓ@4]',
     'б': '[б6bв]',
-    'в': '[вb]',
-    'г': '[гr]',
-    'д': '[дg]',
+    'в': '[вbv]',
+    'г': '[гrg]',
+    'д': '[дgd]',
     'е': '[eеёӗӗ3€]',
-    'ё': '[eеёӗӗ3€]',
-    'ж': '[ж]',
+    'ё': '[eеёӗӗ3€yo]',
+    'ж': '[жzh]',
     'з': '[з3z]',
     'и': '[иuiі1]',
-    'й': '[йuiі]',
+    'й': '[йyij]',
     'к': '[кkқҚ]',
-    'л': '[л]',
+    'л': '[лl]',
     'м': '[мm]',
     'н': '[нn]',
     'о': '[oоөӨ0]',
     'п': '[пnp]',
-    'р': '[рp]',
-    'с': '[сc]',
+    'р': '[рpr]',
+    'с': '[сcs]',
     'т': '[тt]',
-    'у': '[уy]',
-    'ф': '[ф]',
-    'х': '[хx×]',
-    'ц': '[ц]',
-    'ч': '[ч4]',
-    'ш': '[ш]',
-    'щ': '[щ]',
+    'у': '[уuy]',
+    'ф': '[фf]',
+    'х': '[хxh]',
+    'ц': '[цtsc]',
+    'ч': '[ч4ch]',
+    'ш': '[шsh]',
+    'щ': '[щshch]',
     'ъ': '[ъ]',
-    'ы': '[ы]',
+    'ы': '[ыy]',
     'ь': '[ьb]',
     'э': '[э3e]',
-    'ю': '[ю]',
-    'я': '[я]',
+    'ю': '[юyu]',
+    'я': '[яyaia]',
     # Kazakh-specific
     'ә': '[ә]',
-    'ғ': '[ғ]',
-    'қ': '[қkкk]',
-    'ң': '[ңn]',
+    'ғ': '[ғg]',
+    'қ': '[қkкkq]',
+    'ң': '[ңnng]',
     'ө': '[өoо0]',
     'ұ': '[ұu]',
     'ү': '[үu]',
@@ -145,15 +236,52 @@ def generate_regex_variants_for_word(word: str) -> list[dict]:
     
     Generated patterns:
     1. Multi-language lookalikes (Russian/English/Kazakh character substitution)
-    2. Spaced/separated characters (e.g., "w o r d")
-    3. Zero-width character injection
-    4. Unicode normalization variants
+    2. Transliteration (Russian ↔ English phonetic equivalents)
+    3. Spaced/separated characters (e.g., "w o r d")
+    4. Zero-width character injection
+    5. Unicode normalization variants
+    6. MULTI-MODAL: Combinations (transliteration + spacing, transliteration + lookalikes)
     """
     word = word.lower().strip()
     if len(word) < 3:
         return []  # Too short for regex variants
     
     variants = []
+    
+    # Determine if word is primarily Cyrillic or Latin
+    is_cyrillic = any('\u0400' <= c <= '\u04FF' for c in word)
+    
+    # Get transliterated version for multi-modal patterns
+    translit_word = None
+    if is_cyrillic:
+        translit_word = _transliterate_word(word, TRANSLIT_RU_TO_EN)
+    else:
+        translit_word = _transliterate_word(word, TRANSLIT_EN_TO_RU)
+    
+    # Pattern 0: Transliteration variants (exact match only)
+    # Convert Russian words to Latin equivalents and vice versa
+    if is_cyrillic:
+        # Russian word → English transliteration
+        translit_pattern = _generate_translit_pattern(word, TRANSLIT_RU_TO_EN)
+        if translit_pattern:
+            variants.append({
+                "name": f"{word}_translit_en",
+                "pattern": r"\b" + translit_pattern + r"\b",
+                "description": f"Транслитерация '{word}' латиницей",
+                "examples": [word, translit_word],
+                "enabled": True,
+            })
+    else:
+        # English word → Russian transliteration
+        translit_pattern = _generate_translit_pattern(word, TRANSLIT_EN_TO_RU)
+        if translit_pattern:
+            variants.append({
+                "name": f"{word}_translit_ru",
+                "pattern": r"\b" + translit_pattern + r"\b",
+                "description": f"Транслитерация '{word}' кириллицей",
+                "examples": [word, translit_word],
+                "enabled": True,
+            })
     
     # Pattern 1: Multi-language lookalike substitution
     # Catches: mixed scripts, leet speak, homoglyphs
@@ -244,7 +372,135 @@ def generate_regex_variants_for_word(word: str) -> list[dict]:
             "enabled": True,
         })
     
+    # Pattern 5: MULTI-MODAL - Transliteration + Spacing/Lookalikes
+    # This catches "pr i vet", "pr1vet", "p r 1 v e t" for word "привет"
+    if translit_word and len(translit_word) >= 3 and translit_word != word:
+        # Build pattern with lookalike + spacing for transliterated word
+        multimodal_chars = []
+        for char in translit_word:
+            char_lower = char.lower()
+            if char_lower in LOOKALIKE_MAP:
+                multimodal_chars.append(LOOKALIKE_MAP[char_lower])
+            else:
+                multimodal_chars.append(re.escape(char))
+        
+        # Add spacing between characters
+        multimodal_pattern = r"[\s\.\-_]{0,3}".join(multimodal_chars)
+        
+        variants.append({
+            "name": f"{word}_translit_spaced",
+            "pattern": multimodal_pattern,
+            "description": f"Транслитерация '{word}' с пробелами/заменами",
+            "examples": [translit_word, " ".join(translit_word)],
+            "enabled": True,
+        })
+        
+        # Also create zero-width variant for transliteration
+        zw_chars = r"[\u200B\u200C\u200D\u2060\uFEFF]"
+        multimodal_zw = f"{zw_chars}{{0,2}}".join(multimodal_chars)
+        
+        variants.append({
+            "name": f"{word}_translit_zerowidth",
+            "pattern": r"\b" + multimodal_zw + r"\b",
+            "description": f"Транслитерация '{word}' с невидимыми символами",
+            "examples": [translit_word],
+            "enabled": True,
+        })
+    
     return variants
+
+
+def _generate_translit_pattern(word: str, translit_map: dict) -> str:
+    """Generate regex pattern for transliteration variants."""
+    pattern = ""
+    i = 0
+    
+    while i < len(word):
+        matched = False
+        
+        # Try to match multi-character sequences first (e.g., "sh", "zh", "ch")
+        for length in [4, 3, 2]:  # Try longer sequences first
+            if i + length <= len(word):
+                substr = word[i:i+length].lower()
+                if substr in translit_map:
+                    options = translit_map[substr]
+                    if isinstance(options, list):
+                        # Multiple options: create character class
+                        filtered_options = [opt for opt in options if opt]  # Remove empty strings
+                        if filtered_options:
+                            if len(filtered_options) == 1:
+                                pattern += re.escape(filtered_options[0])
+                            else:
+                                pattern += f"(?:{'|'.join(re.escape(opt) for opt in filtered_options)})"
+                    elif options:  # Single option, not empty
+                        pattern += re.escape(options)
+                    i += length
+                    matched = True
+                    break
+        
+        # If no multi-char match, try single character
+        if not matched:
+            char = word[i].lower()
+            if char in translit_map:
+                options = translit_map[char]
+                if isinstance(options, list):
+                    filtered_options = [opt for opt in options if opt]
+                    if filtered_options:
+                        if len(filtered_options) == 1:
+                            pattern += re.escape(filtered_options[0])
+                        else:
+                            pattern += f"(?:{'|'.join(re.escape(opt) for opt in filtered_options)})"
+                    else:
+                        # All options were empty (like ъ, ь) - skip
+                        pass
+                elif options:
+                    pattern += re.escape(options)
+                else:
+                    # Empty string mapping (like ъ, ь) - skip
+                    pass
+            else:
+                # Character not in map, keep as-is
+                pattern += re.escape(char)
+            i += 1
+    
+    return pattern if pattern else ""
+
+
+def _transliterate_word(word: str, translit_map: dict) -> str:
+    """Simple transliteration for example generation (takes first option)."""
+    result = ""
+    i = 0
+    
+    while i < len(word):
+        matched = False
+        
+        # Try multi-character sequences
+        for length in [4, 3, 2]:
+            if i + length <= len(word):
+                substr = word[i:i+length].lower()
+                if substr in translit_map:
+                    options = translit_map[substr]
+                    if isinstance(options, list):
+                        result += options[0] if options and options[0] else ''
+                    else:
+                        result += options if options else ''
+                    i += length
+                    matched = True
+                    break
+        
+        if not matched:
+            char = word[i].lower()
+            if char in translit_map:
+                options = translit_map[char]
+                if isinstance(options, list):
+                    result += options[0] if options and options[0] else ''
+                else:
+                    result += options if options else ''
+            else:
+                result += char
+            i += 1
+    
+    return result
 
 
 def _generate_lookalike_example(word: str) -> str:
