@@ -5,6 +5,7 @@ Triggers are stored per-chat in the database and can be managed via commands.
 
 import os
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Pattern
 from dotenv import load_dotenv
@@ -33,6 +34,81 @@ TRIGGER_LEMMAS: set[str] = {
 # ═══════════════════════════════════════════════════════════════════════════════
 # REGEX PATTERN GENERATORS (for enhanced detection of trigger words)
 # ═══════════════════════════════════════════════════════════════════════════════
+
+# Comprehensive lookalike character map for Russian, English, and Kazakh
+# Maps each character to a regex character class with visually similar alternatives
+LOOKALIKE_MAP = {
+    # Latin/Cyrillic/Kazakh lookalikes with leet speak
+    'a': '[aаӑӓӓӓ@4]',
+    'b': '[bбвЬ6]',
+    'c': '[cсϲⅽ]',
+    'd': '[dԁ]',
+    'e': '[eеёӗӗ3€]',
+    'g': '[gԍ]',
+    'h': '[hһҺ]',
+    'i': '[iіїӏ1!|]',
+    'j': '[jјј]',
+    'k': '[kкқҚ]',
+    'l': '[lӏ1|]',
+    'm': '[mмӎ]',
+    'n': '[nпҥҢ]',
+    'o': '[oоөӨ0]',
+    'p': '[pрр]',
+    'q': '[qԛ]',
+    'r': '[rгr]',
+    's': '[sѕs5$]',
+    't': '[tтҭ]',
+    'u': '[uүұӯ]',
+    'v': '[vѵν]',
+    'w': '[wԝ]',
+    'x': '[xхҳ×]',
+    'y': '[yуўӱ]',
+    'z': '[z3]',
+    # Cyrillic characters
+    'а': '[aаӑӓӓӓ@4]',
+    'б': '[б6bв]',
+    'в': '[вb]',
+    'г': '[гr]',
+    'д': '[дg]',
+    'е': '[eеёӗӗ3€]',
+    'ё': '[eеёӗӗ3€]',
+    'ж': '[ж]',
+    'з': '[з3z]',
+    'и': '[иuiі1]',
+    'й': '[йuiі]',
+    'к': '[кkқҚ]',
+    'л': '[л]',
+    'м': '[мm]',
+    'н': '[нn]',
+    'о': '[oоөӨ0]',
+    'п': '[пnp]',
+    'р': '[рp]',
+    'с': '[сc]',
+    'т': '[тt]',
+    'у': '[уy]',
+    'ф': '[ф]',
+    'х': '[хx×]',
+    'ц': '[ц]',
+    'ч': '[ч4]',
+    'ш': '[ш]',
+    'щ': '[щ]',
+    'ъ': '[ъ]',
+    'ы': '[ы]',
+    'ь': '[ьb]',
+    'э': '[э3e]',
+    'ю': '[ю]',
+    'я': '[я]',
+    # Kazakh-specific
+    'ә': '[ә]',
+    'ғ': '[ғ]',
+    'қ': '[қkкk]',
+    'ң': '[ңn]',
+    'ө': '[өoо0]',
+    'ұ': '[ұu]',
+    'ү': '[үu]',
+    'һ': '[һh]',
+    'і': '[іi1|]',
+}
 
 @dataclass
 class RegexRule:
@@ -68,9 +144,10 @@ def generate_regex_variants_for_word(word: str) -> list[dict]:
     Returns list of rule dicts that can be added to database.
     
     Generated patterns:
-    1. Spaced characters (e.g., "w o r d")
-    2. L33t speak variants (e.g., "w0rd")
-    3. Mixed case Unicode tricks
+    1. Multi-language lookalikes (Russian/English/Kazakh character substitution)
+    2. Spaced/separated characters (e.g., "w o r d")
+    3. Zero-width character injection
+    4. Unicode normalization variants
     """
     word = word.lower().strip()
     if len(word) < 3:
@@ -78,39 +155,116 @@ def generate_regex_variants_for_word(word: str) -> list[dict]:
     
     variants = []
     
-    # Pattern 1: Spaced/separated characters (bypass technique)
+    # Pattern 1: Multi-language lookalike substitution
+    # Catches: mixed scripts, leet speak, homoglyphs
+    # Example: "привет" catches "privet", "пpивeт", "pr1vet", etc.
+    lookalike_pattern = ""
+    has_substitutions = False
+    
+    for char in word:
+        char_lower = char.lower()
+        if char_lower in LOOKALIKE_MAP:
+            lookalike_pattern += LOOKALIKE_MAP[char_lower]
+            has_substitutions = True
+        else:
+            # Escape special regex characters
+            lookalike_pattern += re.escape(char)
+    
+    if has_substitutions:
+        variants.append({
+            "name": f"{word}_lookalike",
+            "pattern": r"\b" + lookalike_pattern + r"\b",
+            "description": f"Обход '{word}' через замену букв (RU/EN/KZ/leet)",
+            "examples": [word, _generate_lookalike_example(word)],
+            "enabled": True,
+        })
+    
+    # Pattern 2: Spaced/separated characters (bypass technique)
     # Example: "word" -> "w\s*o\s*r\s*d"
-    spaced_pattern = r"\s{0,2}".join(list(word))
+    # Allow 0-3 spaces/separators between characters
+    spaced_chars = []
+    for char in word:
+        char_lower = char.lower()
+        if char_lower in LOOKALIKE_MAP:
+            spaced_chars.append(LOOKALIKE_MAP[char_lower])
+        else:
+            spaced_chars.append(re.escape(char))
+    
+    spaced_pattern = r"[\s\.\-_]{0,3}".join(spaced_chars)
     variants.append({
         "name": f"{word}_spaced",
         "pattern": spaced_pattern,
-        "description": f"Обход '{word}' через пробелы/символы",
-        "examples": [" ".join(word), word],
+        "description": f"Обход '{word}' через пробелы/разделители",
+        "examples": [" ".join(word), "".join(word)],
         "enabled": True,
     })
     
-    # Pattern 2: L33t speak (if applicable)
-    # Common substitutions: a->@, e->3, i->1, o->0, s->5
-    leet_map = {'a': '[a@а]', 'e': '[e3е]', 'i': '[i1іі]', 'o': '[o0о]', 's': '[s5ѕ]'}
-    leet_pattern = ""
-    has_leet = False
+    # Pattern 3: Zero-width character injection
+    # Example: "word" with invisible Unicode characters between letters
+    zw_chars = r"[\u200B\u200C\u200D\u2060\uFEFF]"  # Zero-width space, ZWNJ, ZWJ, word joiner, BOM
+    zw_pattern_parts = []
     for char in word:
-        if char in leet_map:
-            leet_pattern += leet_map[char]
-            has_leet = True
+        char_lower = char.lower()
+        if char_lower in LOOKALIKE_MAP:
+            zw_pattern_parts.append(LOOKALIKE_MAP[char_lower])
         else:
-            leet_pattern += char
+            zw_pattern_parts.append(re.escape(char))
     
-    if has_leet:
+    zw_pattern = f"{zw_chars}{{0,2}}".join(zw_pattern_parts)
+    variants.append({
+        "name": f"{word}_zerowidth",
+        "pattern": r"\b" + zw_pattern + r"\b",
+        "description": f"Обход '{word}' через невидимые символы",
+        "examples": [word],
+        "enabled": True,
+    })
+    
+    # Pattern 4: Unicode normalization variants (diacritics)
+    # Normalize to NFD (decomposed form) and create pattern ignoring combining marks
+    normalized = unicodedata.normalize('NFD', word)
+    base_chars = ''.join(c for c in normalized if unicodedata.category(c) != 'Mn')
+    
+    if base_chars != word and len(base_chars) >= 3:
+        # Create pattern that optionally matches combining diacritics after each base char
+        diacritic_pattern = ""
+        for char in base_chars:
+            char_lower = char.lower()
+            if char_lower in LOOKALIKE_MAP:
+                diacritic_pattern += LOOKALIKE_MAP[char_lower]
+            else:
+                diacritic_pattern += re.escape(char)
+            # Optionally match any combining diacritical marks
+            diacritic_pattern += r"[\u0300-\u036f]{0,3}"
+        
         variants.append({
-            "name": f"{word}_leet",
-            "pattern": r"\b" + leet_pattern + r"\b",
-            "description": f"L33t-speak варианты '{word}'",
-            "examples": [word, word.replace('a', '@').replace('o', '0')],
+            "name": f"{word}_diacritics",
+            "pattern": r"\b" + diacritic_pattern + r"\b",
+            "description": f"Обход '{word}' через диакритические знаки",
+            "examples": [word, base_chars],
             "enabled": True,
         })
     
     return variants
+
+
+def _generate_lookalike_example(word: str) -> str:
+    """Generate an example with character substitutions for display."""
+    example = ""
+    substitutions = {
+        'a': '@', 'e': '3', 'i': '1', 'o': '0', 's': '5',
+        'а': 'a', 'е': 'e', 'о': 'o', 'с': 'c', 'р': 'p',
+        'к': 'k', 'х': 'x', 'у': 'y', 'в': 'b', 'н': 'n',
+    }
+    
+    for i, char in enumerate(word):
+        char_lower = char.lower()
+        # Substitute every 2nd character for variety
+        if i % 2 == 1 and char_lower in substitutions:
+            example += substitutions[char_lower]
+        else:
+            example += char
+    
+    return example if example != word else word.replace('o', '0').replace('е', 'e')
 
 
 # Static regex rules (generic patterns not tied to specific words)

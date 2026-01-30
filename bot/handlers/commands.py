@@ -327,7 +327,7 @@ async def cmd_leaderboard(message: Message):
             "💀 <b>Топ ломателей стрика:</b>",
         ])
         
-        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
+        medals = ["🥇", "🥈", "🥉"]
         
         for i, b in enumerate(breakers):
             medal = medals[i] if i < len(medals) else f"{i+1}."
