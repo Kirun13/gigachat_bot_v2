@@ -49,6 +49,3 @@ data/
 # OS
 .DS_Store
 Thumbs.db
-
-OPTIMIZATION_SUMMARY.md
-PERFORMANCE_ANALYSIS.md
