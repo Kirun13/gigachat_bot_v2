@@ -26,6 +26,7 @@ from bot.db import (
     get_all_trigger_lemmas,
     get_all_regex_rules,
     format_duration,
+    clear_chat_data,
     EventType,
 )
 from bot.config import REGEX_RULES
@@ -141,6 +142,9 @@ async def cmd_help(message: Message, command: CommandObject):
 /disablerule название — выключить regex-правило
   <i>Используйте /triggers full чтобы увидеть все правила</i>
 
+/ confirm — удалить все данные чата (НЕОБРАТИМО!)
+  <i>⚠️ Удаляет всю историю, стрики, триггеры и статистику ТОЛЬКО этого чата</i>
+
 <b>🔍 Как работает детекция:</b>
 
 <b>1. Лемматизация (pymorphy3)</b>
@@ -201,6 +205,7 @@ async def cmd_help(message: Message, command: CommandObject):
 /removeword слово — удалить триггерное слово
 /enablerule название — включить regex-правило
 /disablerule название — выключить regex-правило
+/cleardata confirm — удалить все данные чата
 
 <b>ℹ️ Прочее:</b>
 /start — приветствие и краткая инструкция
@@ -590,3 +595,51 @@ async def cmd_disablerule(message: Message, command: CommandObject):
         logger.info(f"Admin {user_id} disabled rule '{rule_name}' in chat {chat_id}")
     else:
         await message.reply(f"⚠️ Правило <code>{rule_name}</code> не найдено")
+
+
+@router.message(Command("cleardata"))
+async def cmd_cleardata(message: Message, command: CommandObject):
+    """Clear all chat data - events, streaks, triggers, stats (admin only)."""
+    if not await is_admin(message):
+        await message.reply("⚠️ Команда только для администраторов")
+        return
+    
+    chat_id = message.chat.id
+    user_id = message.from_user.id if message.from_user else 0
+    username = get_username(message)
+    
+    # Check for confirmation
+    if not command.args or command.args.strip().lower() != "confirm":
+        await message.reply(
+            "⚠️ <b>ВНИМАНИЕ!</b>\n\n"
+            "Эта команда удалит ВСЕ данные этого чата:\n"
+            "• 📊 Все события и историю\n"
+            "• ⏱ Текущий и лучший стрик\n"
+            "• 🎯 Все триггеры\n"
+            "• 💀 Статистику ломателей\n\n"
+            "Это действие <b>НЕОБРАТИМО</b>!\n\n"
+            "Для подтверждения используйте:\n"
+            "<code>/cleardata confirm</code>"
+        )
+        return
+    
+    # Get current state for logging
+    state = await get_chat_state(chat_id)
+    
+    # Clear all data
+    deleted = await clear_chat_data(chat_id, user_id, username)
+    
+    await message.reply(
+        "🗑 <b>Все данные чата удалены</b>\n\n"
+        f"Удалено:\n"
+        f"• События: {deleted['events']}\n"
+        f"• Триггеры: {deleted['triggers']}\n"
+        f"• Пользователей в статистике: {deleted['users']}\n\n"
+        f"Последний стрик был: <b>{state.format_current_streak()}</b>\n\n"
+        "Чат начинается с чистого листа! 🆕"
+    )
+    
+    logger.warning(
+        f"CLEARDATA: Admin {user_id} ({username}) cleared all data in chat {chat_id}. "
+        f"Deleted: {deleted['events']} events, {deleted['triggers']} triggers, {deleted['users']} users"
+    )

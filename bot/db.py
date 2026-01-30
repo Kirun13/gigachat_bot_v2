@@ -902,7 +902,7 @@ async def get_all_trigger_lemmas(chat_id: int) -> list[str]:
 
 
 async def get_all_regex_rules(chat_id: int) -> list[tuple[str, bool]]:
-    """Получает все regex-правила для отображения."""
+    """Get all regex rules for display."""
     async with aiosqlite.connect(DATABASE_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute("""
@@ -912,3 +912,48 @@ async def get_all_regex_rules(chat_id: int) -> list[tuple[str, bool]]:
         """, (chat_id,))
         rows = await cursor.fetchall()
         return [(row["value"], bool(row["enabled"])) for row in rows]
+
+
+async def clear_chat_data(chat_id: int, admin_user_id: int, admin_username: Optional[str]) -> dict:
+    """
+    Clear all data for specific chat only.
+    Deletes: events, chat_state, chat_triggers, user_stats.
+    
+    Args:
+        chat_id: ID of chat to clear
+        admin_user_id: ID of admin performing action
+        admin_username: Username of admin performing action
+    
+    Returns:
+        dict with counts of deleted records
+    """
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        
+        # Count records before deletion
+        cursor = await db.execute("SELECT COUNT(*) as cnt FROM events WHERE chat_id = ?", (chat_id,))
+        events_count = (await cursor.fetchone())["cnt"]
+        
+        cursor = await db.execute("SELECT COUNT(*) as cnt FROM chat_triggers WHERE chat_id = ?", (chat_id,))
+        triggers_count = (await cursor.fetchone())["cnt"]
+        
+        cursor = await db.execute("SELECT COUNT(*) as cnt FROM user_stats WHERE chat_id = ?", (chat_id,))
+        users_count = (await cursor.fetchone())["cnt"]
+        
+        # Delete all data for this chat
+        await db.execute("DELETE FROM events WHERE chat_id = ?", (chat_id,))
+        await db.execute("DELETE FROM chat_state WHERE chat_id = ?", (chat_id,))
+        await db.execute("DELETE FROM chat_triggers WHERE chat_id = ?", (chat_id,))
+        await db.execute("DELETE FROM user_stats WHERE chat_id = ?", (chat_id,))
+        
+        await db.commit()
+    
+    # Clear cache for this chat
+    if chat_id in _trigger_cache:
+        del _trigger_cache[chat_id]
+    
+    return {
+        "events": events_count,
+        "triggers": triggers_count,
+        "users": users_count,
+    }
